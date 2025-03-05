@@ -117,4 +117,5 @@ pipeline {
                 '''
             }
         }
-   
+    }
+}  // <-- **Fixed: Missing closing brace added here**
