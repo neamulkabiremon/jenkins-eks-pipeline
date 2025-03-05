@@ -4,30 +4,18 @@ pipeline {
     environment {
         IMAGE_NAME = 'neamulkabiremon/jenkins-flask-app'
         IMAGE_TAG = "${IMAGE_NAME}:${env.GIT_COMMIT}"
+        KUBECONFIG = credentials('kubeconfig-credentials-id')
         AWS_ACCESS_KEY_ID = credentials('aws-access-key')
         AWS_SECRET_ACCESS_KEY = credentials('aws-secret-access-key')
-        AWS_REGION = 'us-east-2'
-        EKS_CLUSTER_NAME = 'staging-prod'
     }
 
     stages {
         stage('Setup') {
             steps {
-                script {
-                    echo 'Installing AWS CLI and kubectl...'
-                    sh """
-                    apt-get update && apt-get install -y awscli
-                    curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-                    chmod +x kubectl
-                    mv kubectl /usr/local/bin/
-                    """
-                    
-                    echo 'Authenticating with EKS...'
-                    sh "aws eks update-kubeconfig --region ${AWS_REGION} --name ${EKS_CLUSTER_NAME}"
-                    
-                    echo 'Installing dependencies...'
-                    sh "pip install -r requirements.txt"
-                }
+                sh 'ls -la $KUBECONFIG'
+                sh 'chmod 644 $KUBECONFIG'
+                sh 'ls -la $KUBECONFIG'
+                sh "pip install -r requirements.txt"
             }
         }
 
@@ -40,33 +28,33 @@ pipeline {
         stage('Login to Docker Hub') {
             steps {
                 withCredentials([usernamePassword(credentialsId: 'docker-creds', usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD')]) {
-                    sh 'echo ${PASSWORD} | docker login -u ${USERNAME} --password-stdin'
+                    sh 'echo $PASSWORD | docker login -u $USERNAME --password-stdin'
                 }
-                echo 'Login successfully'
             }
         }
 
         stage('Build Docker Image') {
             steps {
-                sh 'docker build -t ${IMAGE_TAG} .'
-                echo "Docker image built successfully"
-                sh 'docker image ls'
+                sh """
+                   docker build -t ${IMAGE_TAG} .
+                   echo "Docker image build successfully"
+                   docker image ls
+                """
             }
         }
 
         stage('Push Docker Image') {
             steps {
-                sh 'docker push ${IMAGE_TAG}'
+                sh "docker push ${IMAGE_TAG}"
                 echo "Docker image pushed successfully"
             }
         }
 
-        stage('Deploy to Development') {
+        stage('Deploy to Staging') {
             steps {
-                script {
-                    echo 'Deploying to Development...'
-                    sh "kubectl set image deployment/flask-app flask-app=${IMAGE_TAG}"
-                }
+                sh 'aws eks update-kubeconfig --region us-east-2 --name staging-prod'
+                sh 'kubectl config current-context'
+                sh "kubectl set image deployment/flask-app flask-app=${IMAGE_TAG}"
             }
         }
 
@@ -74,7 +62,7 @@ pipeline {
             steps {
                 script {
                     def service = sh(script: "kubectl get svc flask-app-service -o jsonpath='{.status.loadBalancer.ingress[0].hostname}:{.spec.ports[0].port}'", returnStdout: true).trim()
-                    echo "Running acceptance tests against ${service}"
+                    echo "${service}"
                     sh "k6 run -e SERVICE=${service} acceptance-test.js"
                 }
             }
@@ -82,11 +70,9 @@ pipeline {
 
         stage('Deploy to Prod') {
             steps {
-                script {
-                    echo 'Deploying to Production...'
-                    sh "aws eks update-kubeconfig --region ${AWS_REGION} --name prod-cluster"
-                    sh "kubectl set image deployment/flask-app flask-app=${IMAGE_TAG}"
-                }
+                sh 'aws eks update-kubeconfig --region us-east-2 --name prod-cluster'
+                sh 'kubectl config current-context'
+                sh "kubectl set image deployment/flask-app flask-app=${IMAGE_TAG}"
             }
         }
     }
