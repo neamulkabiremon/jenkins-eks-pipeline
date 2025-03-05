@@ -12,15 +12,18 @@ pipeline {
         stage('Setup') {
             steps {
                 sh '''
-                    # Install AWS CLI if not installed
-                    if ! command -v aws &> /dev/null; then
+                    set -e  # Exit immediately if a command exits with a non-zero status
+                    
+                    # Install or update AWS CLI
+                    if command -v aws &> /dev/null; then
+                        echo "AWS CLI is already installed. Updating..."
+                        sudo ./aws/install --update
+                    else
                         echo "AWS CLI not found. Installing..."
                         curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
                         unzip awscliv2.zip
                         sudo ./aws/install
                         rm -rf awscliv2.zip aws
-                    else
-                        echo "AWS CLI is already installed"
                     fi
 
                     # Install kubectl if not installed
