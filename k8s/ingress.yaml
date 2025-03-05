@@ -1,0 +1,30 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: flask-app-ingress
+  namespace: development  # ✅ Matches service and deployment
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:us-east-2:377027906194:certificate/2e919de7-caf1-427d-afea-9b5b2b458a92  # ✅ Ensure correct SSL certificate ARN
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}, {"HTTP":80}]'
+    alb.ingress.kubernetes.io/ssl-redirect: '443'
+
+spec:
+  ingressClassName: alb
+  rules:
+    - host: flaskapp.neamulkabiremon.com  # ✅ Matches your domain
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: flask-app-service  # ✅ Matches service.yaml
+                port:
+                  number: 8000  # ✅ Matches Dockerfile & service.yaml
+  tls:
+    - hosts:
+        - flaskapp.neamulkabiremon.com  # ✅ Ensures HTTPS support
+      secretName: flaskapp-tls  # ✅ Ensure cert-manager creates this or it's manually added
+
