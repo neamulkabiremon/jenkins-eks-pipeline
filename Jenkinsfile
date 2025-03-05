@@ -4,7 +4,6 @@ pipeline {
     environment {
         IMAGE_NAME = 'neamulkabiremon/jenkins-flask-app'
         IMAGE_TAG = "${IMAGE_NAME}:${env.GIT_COMMIT}"
-        KUBECONFIG = credentials('kubeconfig-credentials-id')
         AWS_ACCESS_KEY_ID = credentials('aws-access-key')
         AWS_SECRET_ACCESS_KEY = credentials('aws-secret-access-key')
     }
@@ -12,11 +11,22 @@ pipeline {
     stages {
         stage('Setup') {
             steps {
-                sh 'ls -la $KUBECONFIG'
-                sh 'chmod 644 $KUBECONFIG'
-                sh 'ls -la $KUBECONFIG'
-                sh "pip install --user -r requirements.txt"
-                sh "pip install --user pytest"  // Ensure pytest is installed
+                sh '''
+                    # Install AWS CLI if not installed
+                    if ! command -v aws &> /dev/null; then
+                        echo "AWS CLI not found. Installing..."
+                        curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+                        unzip awscliv2.zip
+                        sudo ./aws/install
+                        rm -rf awscliv2.zip aws
+                    else
+                        echo "AWS CLI is already installed"
+                    fi
+
+                    # Ensure Python dependencies are installed
+                    pip install --user -r requirements.txt
+                    pip install --user pytest
+                '''
             }
         }
 
@@ -56,9 +66,13 @@ pipeline {
 
         stage('Deploy to Development') {
             steps {
-                sh 'aws eks update-kubeconfig --region us-east-2 --name staging-prod'
-                sh 'kubectl config current-context'
-                sh "kubectl set image deployment/flask-app flask-app=${IMAGE_TAG}"
+                sh '''
+                    export PATH=$PATH:/usr/local/bin
+                    aws --version
+                    aws eks update-kubeconfig --region us-east-2 --name staging-prod
+                    kubectl config current-context
+                    kubectl set image deployment/flask-app flask-app=${IMAGE_TAG}
+                '''
             }
         }
 
@@ -74,9 +88,12 @@ pipeline {
 
         stage('Deploy to Prod') {
             steps {
-                sh 'aws eks update-kubeconfig --region us-east-2 --name prod-cluster'
-                sh 'kubectl config current-context'
-                sh "kubectl set image deployment/flask-app flask-app=${IMAGE_TAG}"
+                sh '''
+                    export PATH=$PATH:/usr/local/bin
+                    aws eks update-kubeconfig --region us-east-2 --name prod-cluster
+                    kubectl config current-context
+                    kubectl set image deployment/flask-app flask-app=${IMAGE_TAG}
+                '''
             }
         }
     }
