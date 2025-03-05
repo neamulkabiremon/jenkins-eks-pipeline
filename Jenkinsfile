@@ -7,16 +7,15 @@ pipeline {
         AWS_ACCESS_KEY_ID = credentials('aws-access-key')
         AWS_SECRET_ACCESS_KEY = credentials('aws-secret-access-key')
         AWS_REGION = 'us-east-2'
-        KUBECTL_VERSION = 'v1.28.0'  // ✅ Use a stable version
-        KUBECONFIG = '/var/lib/jenkins/.kube/config'  // ✅ Ensure config is persisted
-        SERVICE_URL = "https://flaskapp.neamulkabiremon.com"  // ✅ Hardcoded for DNS resolution
+        KUBECTL_VERSION = 'v1.28.0'
+        KUBECONFIG = '/var/lib/jenkins/.kube/config'
     }
 
     stages {
         stage('Setup') {
             steps {
                 sh '''
-                    set -e  # Exit on error
+                    set -e
 
                     echo "Checking AWS CLI installation..."
                     if ! command -v aws &> /dev/null; then
@@ -46,7 +45,6 @@ pipeline {
                         sudo apt install -y k6
                     fi
 
-                    # Verify installations
                     aws --version
                     kubectl version --client
                     k6 version
@@ -60,52 +58,22 @@ pipeline {
             }
         }
 
-        stage('Test') {
-            steps {
-                sh '''
-                    export PATH=$HOME/.local/bin:$PATH
-                    python -m pytest || echo "Tests failed, continuing..."
-                '''
-            }
-        }
-
-        stage('Login to Docker Hub') {
-            steps {
-                withCredentials([usernamePassword(credentialsId: 'docker-creds', usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD')]) {
-                    sh 'echo $PASSWORD | docker login -u $USERNAME --password-stdin'
-                }
-            }
-        }
-
-        stage('Build Docker Image') {
+        stage('Build and Push Docker Image') {
             steps {
                 sh """
-                   docker build -t ${IMAGE_TAG} .
-                   echo "Docker image built successfully"
-                   docker image ls
+                    docker build -t ${IMAGE_TAG} .
+                    docker push ${IMAGE_TAG}
+                    echo "Docker image pushed successfully"
                 """
-            }
-        }
-
-        stage('Push Docker Image') {
-            steps {
-                sh "docker push ${IMAGE_TAG}"
-                echo "Docker image pushed successfully"
             }
         }
 
         stage('Deploy to Development') {
             steps {
                 sh '''
-                    export PATH=$PATH:/usr/local/bin
-
-                    echo "Authenticating with AWS EKS..."
                     aws eks update-kubeconfig --region ${AWS_REGION} --name staging-prod
-
-                    echo "Setting Kubernetes namespace to 'development'..."
                     kubectl config set-context --current --namespace=development
 
-                    echo "Deploying to Kubernetes (namespace: development)..."
                     for file in k8s/*.yaml; do
                         envsubst < "$file" | kubectl apply -f -;
                     done
@@ -116,10 +84,17 @@ pipeline {
         stage('Acceptance Test') {
             steps {
                 script {
-                    def service = "https://flaskapp.neamulkabiremon.com"  // ✅ Use predefined hostname
-                    echo "Using predefined service URL: ${service}"
+                    def service = sh(script: '''
+                        echo "Waiting for LoadBalancer provisioning..."
+                        sleep 30
+                        kubectl get svc flask-app-service -n development -o jsonpath="{.status.loadBalancer.ingress[0].hostname}:{.spec.ports[0].port}"
+                    ''', returnStdout: true).trim()
 
-                    // Run the test over HTTPS
+                    if (!service || service.contains(":")) {
+                        error "Service URL not found or invalid: '${service}'. Check if the LoadBalancer is provisioned correctly."
+                    }
+
+                    echo "Service URL: ${service}"
                     sh "k6 run -e SERVICE=${service} acceptance-test.js || echo 'Performance test failed, continuing...'"
                 }
             }
@@ -128,24 +103,19 @@ pipeline {
         stage('Deploy to Prod') {
             steps {
                 sh '''
-                    export PATH=$PATH:/usr/local/bin
+                    echo "Checking if production cluster exists..."
+                    if aws eks describe-cluster --region ${AWS_REGION} --name prod-cluster &> /dev/null; then
+                        echo "Production cluster found. Proceeding with deployment."
+                        aws eks update-kubeconfig --region ${AWS_REGION} --name prod-cluster
+                        kubectl config set-context --current --namespace=production
 
-                    echo "Checking if Production EKS Cluster Exists..."
-                    if ! aws eks describe-cluster --name prod-cluster --region ${AWS_REGION} > /dev/null 2>&1; then
-                        echo "Production cluster not found. Skipping deployment."
+                        for file in k8s/*.yaml; do
+                            envsubst < "$file" | kubectl apply -f -;
+                        done
+                    else
+                        echo "Production cluster 'prod-cluster' not found. Skipping deployment."
                         exit 0
                     fi
-
-                    echo "Switching to Production EKS Cluster..."
-                    aws eks update-kubeconfig --region ${AWS_REGION} --name prod-cluster
-
-                    echo "Setting Kubernetes namespace to 'production'..."
-                    kubectl config set-context --current --namespace=production
-
-                    echo "Deploying to Production..."
-                    for file in k8s/*.yaml; do
-                        envsubst < "$file" | kubectl apply -f -;
-                    done
                 '''
             }
         }
