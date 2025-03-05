@@ -12,33 +12,34 @@ pipeline {
         stage('Setup') {
             steps {
                 sh '''
-                    set -e  # Exit immediately if a command exits with a non-zero status
-                    
-                    # Install or update AWS CLI
-                    if command -v aws &> /dev/null; then
-                        echo "AWS CLI is already installed. Updating..."
-                        sudo ./aws/install --update
-                    else
-                        echo "AWS CLI not found. Installing..."
+                    set -e
+
+                    # Install AWS CLI if not present
+                    if ! command -v aws &> /dev/null; then
+                        echo "Installing AWS CLI..."
                         curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
                         unzip awscliv2.zip
                         sudo ./aws/install
                         rm -rf awscliv2.zip aws
                     fi
 
-                    # Install kubectl if not installed
+                    # Install kubectl if not present
                     if ! command -v kubectl &> /dev/null; then
-                        echo "kubectl not found. Installing..."
+                        echo "Installing kubectl..."
                         curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
                         chmod +x kubectl
                         sudo mv kubectl /usr/local/bin/
-                    else
-                        echo "kubectl is already installed"
                     fi
 
                     # Verify installations
                     aws --version
                     kubectl version --client
+
+                    # Ensure AWS credentials are set
+                    mkdir -p ~/.aws
+                    echo "[default]" > ~/.aws/credentials
+                    echo "aws_access_key_id=${AWS_ACCESS_KEY_ID}" >> ~/.aws/credentials
+                    echo "aws_secret_access_key=${AWS_SECRET_ACCESS_KEY}" >> ~/.aws/credentials
 
                     # Ensure Python dependencies are installed
                     pip install --user -r requirements.txt
@@ -68,7 +69,7 @@ pipeline {
             steps {
                 sh """
                    docker build -t ${IMAGE_TAG} .
-                   echo "Docker image build successfully"
+                   echo "Docker image built successfully"
                    docker image ls
                 """
             }
@@ -85,10 +86,20 @@ pipeline {
             steps {
                 sh '''
                     export PATH=$PATH:/usr/local/bin
-                    aws --version
-                    kubectl version --client
+
+                    # Configure AWS credentials
+                    aws configure set aws_access_key_id ${AWS_ACCESS_KEY_ID}
+                    aws configure set aws_secret_access_key ${AWS_SECRET_ACCESS_KEY}
+                    aws configure set region us-east-2
+
+                    # Authenticate with EKS
                     aws eks update-kubeconfig --region us-east-2 --name staging-prod
                     kubectl config current-context
+
+                    # Authenticate using AWS CLI and ensure token-based access
+                    aws eks get-token --region us-east-2 --cluster-name staging-prod
+
+                    # Deploy new image
                     kubectl set image deployment/flask-app flask-app=${IMAGE_TAG}
                 '''
             }
@@ -98,7 +109,7 @@ pipeline {
             steps {
                 script {
                     def service = sh(script: "kubectl get svc flask-app-service -o jsonpath='{.status.loadBalancer.ingress[0].hostname}:{.spec.ports[0].port}'", returnStdout: true).trim()
-                    echo "${service}"
+                    echo "Service URL: ${service}"
                     sh "k6 run -e SERVICE=${service} acceptance-test.js"
                 }
             }
