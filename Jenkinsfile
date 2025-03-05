@@ -6,6 +6,7 @@ pipeline {
         IMAGE_TAG = "${IMAGE_NAME}:${env.GIT_COMMIT}"
         AWS_ACCESS_KEY_ID = credentials('aws-access-key')
         AWS_SECRET_ACCESS_KEY = credentials('aws-secret-access-key')
+        AWS_REGION = 'us-east-2'
     }
 
     stages {
@@ -19,7 +20,7 @@ pipeline {
                         echo "Installing AWS CLI..."
                         curl -s "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
                         unzip -o awscliv2.zip > /dev/null
-                        yes | sudo ./aws/install
+                        sudo ./aws/install --update
                         rm -rf awscliv2.zip aws
                     fi
 
@@ -35,19 +36,10 @@ pipeline {
                     aws --version
                     kubectl version --client
 
-                    echo "Configuring AWS Credentials..."
-                    mkdir -p ~/.aws
-                    cat <<EOT > ~/.aws/credentials
-                    [default]
-                    aws_access_key_id=${AWS_ACCESS_KEY_ID}
-                    aws_secret_access_key=${AWS_SECRET_ACCESS_KEY}
-                    region=us-east-2
-                    EOT
-
-                    # Install dependencies
-                    echo "Installing Python dependencies..."
-                    pip install --user -r requirements.txt
-                    pip install --user pytest
+                    echo "Configuring AWS CLI Authentication..."
+                    aws configure set aws_access_key_id ${AWS_ACCESS_KEY_ID}
+                    aws configure set aws_secret_access_key ${AWS_SECRET_ACCESS_KEY}
+                    aws configure set region ${AWS_REGION}
                 '''
             }
         }
@@ -91,19 +83,11 @@ pipeline {
                 sh '''
                     export PATH=$PATH:/usr/local/bin
 
-                    echo "Configuring AWS CLI for authentication..."
-                    aws configure set aws_access_key_id ${AWS_ACCESS_KEY_ID}
-                    aws configure set aws_secret_access_key ${AWS_SECRET_ACCESS_KEY}
-                    aws configure set region us-east-2
-
-                    echo "Authenticating with EKS..."
-                    aws eks update-kubeconfig --region us-east-2 --name staging-prod
+                    echo "Authenticating with AWS EKS..."
+                    aws eks update-kubeconfig --region ${AWS_REGION} --name staging-prod
                     kubectl config current-context
 
-                    echo "Ensuring EKS authentication..."
-                    aws eks get-token --region us-east-2 --cluster-name staging-prod
-
-                    echo "Deploying to EKS..."
+                    echo "Deploying to Kubernetes..."
                     kubectl set image deployment/flask-app flask-app=${IMAGE_TAG}
                 '''
             }
@@ -123,11 +107,14 @@ pipeline {
             steps {
                 sh '''
                     export PATH=$PATH:/usr/local/bin
-                    aws eks update-kubeconfig --region us-east-2 --name prod-cluster
+
+                    echo "Switching to Production EKS Cluster..."
+                    aws eks update-kubeconfig --region ${AWS_REGION} --name prod-cluster
                     kubectl config current-context
+
+                    echo "Deploying to Production..."
                     kubectl set image deployment/flask-app flask-app=${IMAGE_TAG}
                 '''
             }
         }
-    }
-}
+   
