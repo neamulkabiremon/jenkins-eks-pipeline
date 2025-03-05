@@ -50,7 +50,7 @@ pipeline {
             }
         }
 
-        stage('Deploy to Staging') {
+        stage('Deploy to Development') {
             steps {
                 sh 'aws eks update-kubeconfig --region us-east-2 --name staging-prod'
                 sh 'kubectl config current-context'
