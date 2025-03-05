@@ -23,6 +23,20 @@ pipeline {
                         echo "AWS CLI is already installed"
                     fi
 
+                    # Install kubectl if not installed
+                    if ! command -v kubectl &> /dev/null; then
+                        echo "kubectl not found. Installing..."
+                        curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+                        chmod +x kubectl
+                        sudo mv kubectl /usr/local/bin/
+                    else
+                        echo "kubectl is already installed"
+                    fi
+
+                    # Verify installations
+                    aws --version
+                    kubectl version --client
+
                     # Ensure Python dependencies are installed
                     pip install --user -r requirements.txt
                     pip install --user pytest
@@ -69,6 +83,7 @@ pipeline {
                 sh '''
                     export PATH=$PATH:/usr/local/bin
                     aws --version
+                    kubectl version --client
                     aws eks update-kubeconfig --region us-east-2 --name staging-prod
                     kubectl config current-context
                     kubectl set image deployment/flask-app flask-app=${IMAGE_TAG}
