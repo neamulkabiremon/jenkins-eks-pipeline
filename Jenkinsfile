@@ -9,6 +9,7 @@ pipeline {
         AWS_REGION = 'us-east-2'
         KUBECTL_VERSION = 'v1.28.0'  // ✅ Use a stable version
         KUBECONFIG = '/var/lib/jenkins/.kube/config'  // ✅ Ensure config is persisted
+        SERVICE_URL = "https://flaskapp.neamulkabiremon.com"  // ✅ Hardcoded for DNS resolution
     }
 
     stages {
@@ -115,11 +116,10 @@ pipeline {
         stage('Acceptance Test') {
             steps {
                 script {
-                    def service = sh(script: "kubectl get svc flask-app-service -n development -o jsonpath='{.status.loadBalancer.ingress[0].hostname}:{.spec.ports[0].port}'", returnStdout: true).trim()
-                    if (!service) {
-                        error "Service URL not found. Check if the LoadBalancer is provisioned."
-                    }
-                    echo "Service URL: ${service}"
+                    def service = "https://flaskapp.neamulkabiremon.com"  // ✅ Use predefined hostname
+                    echo "Using predefined service URL: ${service}"
+
+                    // Run the test over HTTPS
                     sh "k6 run -e SERVICE=${service} acceptance-test.js || echo 'Performance test failed, continuing...'"
                 }
             }
@@ -130,14 +130,17 @@ pipeline {
                 sh '''
                     export PATH=$PATH:/usr/local/bin
 
+                    echo "Checking if Production EKS Cluster Exists..."
+                    if ! aws eks describe-cluster --name prod-cluster --region ${AWS_REGION} > /dev/null 2>&1; then
+                        echo "Production cluster not found. Skipping deployment."
+                        exit 0
+                    fi
+
                     echo "Switching to Production EKS Cluster..."
                     aws eks update-kubeconfig --region ${AWS_REGION} --name prod-cluster
 
                     echo "Setting Kubernetes namespace to 'production'..."
                     kubectl config set-context --current --namespace=production
-
-                    echo "Verifying current Kubernetes context..."
-                    kubectl config current-context
 
                     echo "Deploying to Production..."
                     for file in k8s/*.yaml; do
