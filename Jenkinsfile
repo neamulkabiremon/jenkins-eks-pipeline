@@ -15,13 +15,17 @@ pipeline {
                 sh 'ls -la $KUBECONFIG'
                 sh 'chmod 644 $KUBECONFIG'
                 sh 'ls -la $KUBECONFIG'
-                sh "pip install -r requirements.txt"
+                sh "pip install --user -r requirements.txt"
+                sh "pip install --user pytest"  // Ensure pytest is installed
             }
         }
 
         stage('Test') {
             steps {
-                sh "pytest"
+                sh '''
+                    export PATH=$HOME/.local/bin:$PATH
+                    python -m pytest
+                '''
             }
         }
 
