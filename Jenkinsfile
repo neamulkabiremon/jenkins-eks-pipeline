@@ -7,7 +7,8 @@ pipeline {
         AWS_ACCESS_KEY_ID = credentials('aws-access-key')
         AWS_SECRET_ACCESS_KEY = credentials('aws-secret-access-key')
         AWS_REGION = 'us-east-2'
-        KUBECTL_VERSION = 'v1.28.0'  // ✅ Specify a stable version manually
+        KUBECTL_VERSION = 'v1.28.0'  // ✅ Manually specify a stable version
+        KUBECONFIG = '/var/lib/jenkins/.kube/config'  // ✅ Ensure config is persisted
     }
 
     stages {
@@ -86,10 +87,18 @@ pipeline {
 
                     echo "Authenticating with AWS EKS..."
                     aws eks update-kubeconfig --region ${AWS_REGION} --name staging-prod
+
+                    echo "Setting Kubernetes namespace to 'development'..."
+                    kubectl config set-context --current --namespace=development
+
+                    echo "Verifying current Kubernetes context..."
                     kubectl config current-context
 
-                    echo "Deploying to Kubernetes..."
-                    kubectl set image deployment/flask-app flask-app=${IMAGE_TAG}
+                    echo "Ensuring EKS authentication..."
+                    aws eks get-token --region ${AWS_REGION} --cluster-name staging-prod
+
+                    echo "Deploying to Kubernetes (namespace: development)..."
+                    kubectl set image deployment/flask-app flask-app=${IMAGE_TAG} -n development
                 '''
             }
         }
@@ -97,7 +106,7 @@ pipeline {
         stage('Acceptance Test') {
             steps {
                 script {
-                    def service = sh(script: "kubectl get svc flask-app-service -o jsonpath='{.status.loadBalancer.ingress[0].hostname}:{.spec.ports[0].port}'", returnStdout: true).trim()
+                    def service = sh(script: "kubectl get svc flask-app-service -n development -o jsonpath='{.status.loadBalancer.ingress[0].hostname}:{.spec.ports[0].port}'", returnStdout: true).trim()
                     echo "Service URL: ${service}"
                     sh "k6 run -e SERVICE=${service} acceptance-test.js"
                 }
@@ -111,10 +120,18 @@ pipeline {
 
                     echo "Switching to Production EKS Cluster..."
                     aws eks update-kubeconfig --region ${AWS_REGION} --name prod-cluster
+
+                    echo "Setting Kubernetes namespace to 'production'..."
+                    kubectl config set-context --current --namespace=production
+
+                    echo "Verifying current Kubernetes context..."
                     kubectl config current-context
 
+                    echo "Ensuring EKS authentication..."
+                    aws eks get-token --region ${AWS_REGION} --cluster-name prod-cluster
+
                     echo "Deploying to Production..."
-                    kubectl set image deployment/flask-app flask-app=${IMAGE_TAG}
+                    kubectl set image deployment/flask-app flask-app=${IMAGE_TAG} -n production
                 '''
             }
         }
