@@ -12,21 +12,21 @@ pipeline {
         stage('Setup') {
             steps {
                 sh '''
-                    set -e
+                    set -e  # Exit on error
 
-                    # Install AWS CLI if not present
+                    echo "Checking AWS CLI installation..."
                     if ! command -v aws &> /dev/null; then
                         echo "Installing AWS CLI..."
-                        curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-                        unzip awscliv2.zip
-                        sudo ./aws/install
+                        curl -s "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+                        unzip -o awscliv2.zip > /dev/null
+                        yes | sudo ./aws/install
                         rm -rf awscliv2.zip aws
                     fi
 
-                    # Install kubectl if not present
+                    echo "Checking kubectl installation..."
                     if ! command -v kubectl &> /dev/null; then
                         echo "Installing kubectl..."
-                        curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+                        curl -sLO "https://dl.k8s.io/release/$(curl -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
                         chmod +x kubectl
                         sudo mv kubectl /usr/local/bin/
                     fi
@@ -35,13 +35,17 @@ pipeline {
                     aws --version
                     kubectl version --client
 
-                    # Ensure AWS credentials are set
+                    echo "Configuring AWS Credentials..."
                     mkdir -p ~/.aws
-                    echo "[default]" > ~/.aws/credentials
-                    echo "aws_access_key_id=${AWS_ACCESS_KEY_ID}" >> ~/.aws/credentials
-                    echo "aws_secret_access_key=${AWS_SECRET_ACCESS_KEY}" >> ~/.aws/credentials
+                    cat <<EOT > ~/.aws/credentials
+                    [default]
+                    aws_access_key_id=${AWS_ACCESS_KEY_ID}
+                    aws_secret_access_key=${AWS_SECRET_ACCESS_KEY}
+                    region=us-east-2
+                    EOT
 
-                    # Ensure Python dependencies are installed
+                    # Install dependencies
+                    echo "Installing Python dependencies..."
                     pip install --user -r requirements.txt
                     pip install --user pytest
                 '''
@@ -87,19 +91,19 @@ pipeline {
                 sh '''
                     export PATH=$PATH:/usr/local/bin
 
-                    # Configure AWS credentials
+                    echo "Configuring AWS CLI for authentication..."
                     aws configure set aws_access_key_id ${AWS_ACCESS_KEY_ID}
                     aws configure set aws_secret_access_key ${AWS_SECRET_ACCESS_KEY}
                     aws configure set region us-east-2
 
-                    # Authenticate with EKS
+                    echo "Authenticating with EKS..."
                     aws eks update-kubeconfig --region us-east-2 --name staging-prod
                     kubectl config current-context
 
-                    # Authenticate using AWS CLI and ensure token-based access
+                    echo "Ensuring EKS authentication..."
                     aws eks get-token --region us-east-2 --cluster-name staging-prod
 
-                    # Deploy new image
+                    echo "Deploying to EKS..."
                     kubectl set image deployment/flask-app flask-app=${IMAGE_TAG}
                 '''
             }
