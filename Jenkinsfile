@@ -7,6 +7,7 @@ pipeline {
         AWS_ACCESS_KEY_ID = credentials('aws-access-key')
         AWS_SECRET_ACCESS_KEY = credentials('aws-secret-access-key')
         AWS_REGION = 'us-east-2'
+        KUBECTL_VERSION = 'v1.28.0'  // ✅ Specify a stable version manually
     }
 
     stages {
@@ -27,7 +28,7 @@ pipeline {
                     echo "Checking kubectl installation..."
                     if ! command -v kubectl &> /dev/null; then
                         echo "Installing kubectl..."
-                        curl -sLO "https://dl.k8s.io/release/$(curl -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+                        curl -LO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
                         chmod +x kubectl
                         sudo mv kubectl /usr/local/bin/
                     fi
@@ -118,4 +119,4 @@ pipeline {
             }
         }
     }
-}  // <-- **Fixed: Missing closing brace added here**
+}
