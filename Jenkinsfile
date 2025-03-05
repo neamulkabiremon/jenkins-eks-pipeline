@@ -7,9 +7,9 @@ pipeline {
         AWS_ACCESS_KEY_ID = credentials('aws-access-key')
         AWS_SECRET_ACCESS_KEY = credentials('aws-secret-access-key')
         AWS_REGION = 'us-east-2'
-        KUBECTL_VERSION = 'v1.28.0'  // ✅ Use a stable version
-        KUBECONFIG = '/var/lib/jenkins/.kube/config'  // ✅ Ensure config is persisted
-        SERVICE_URL = "https://flaskapp.neamulkabiremon.com"  // ✅ Hardcoded for DNS resolution
+        KUBECTL_VERSION = 'v1.28.0'  // ✅ Stable version
+        KUBECONFIG = '/var/lib/jenkins/.kube/config'  // ✅ Ensure persistence
+        SERVICE_URL = "https://flaskapp.neamulkabiremon.com"  // ✅ Use HTTPS for correct DNS resolution
     }
 
     stages {
@@ -39,9 +39,12 @@ pipeline {
                     if ! command -v k6 &> /dev/null; then
                         echo "Installing k6..."
                         sudo apt update
-                        sudo apt install -y gnupg2
-                        curl -fsSL https://dl.k6.io/key.gpg | sudo gpg --dearmor -o /usr/share/keyrings/k6-archive-keyring.gpg
+                        sudo apt install -y gnupg2 curl
+                        
+                        # Fix gpg issue with --batch --yes
+                        curl -fsSL https://dl.k6.io/key.gpg | sudo gpg --batch --yes --dearmor -o /usr/share/keyrings/k6-archive-keyring.gpg
                         echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
+                        
                         sudo apt update
                         sudo apt install -y k6
                     fi
