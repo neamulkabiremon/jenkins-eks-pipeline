@@ -91,14 +91,11 @@ pipeline {
                     echo "Setting Kubernetes namespace to 'development'..."
                     kubectl config set-context --current --namespace=development
 
-                    echo "Verifying current Kubernetes context..."
-                    kubectl config current-context
-
                     echo "Ensuring EKS authentication..."
                     aws eks get-token --region ${AWS_REGION} --cluster-name staging-prod
 
                     echo "Deploying to Kubernetes (namespace: development)..."
-                    kubectl set image deployment/flask-app flask-app=${IMAGE_TAG} -n development
+                    kubectl apply -f k8s
                 '''
             }
         }
