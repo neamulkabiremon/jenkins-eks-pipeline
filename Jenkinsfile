@@ -61,10 +61,10 @@ pipeline {
             }
         }
 
-        stage('Deploy to Staging') {
+        stage('Deploy to Development') {
             steps {
                 script {
-                    echo 'Deploying to Staging...'
+                    echo 'Deploying to Development...'
                     sh "kubectl set image deployment/flask-app flask-app=${IMAGE_TAG}"
                 }
             }
